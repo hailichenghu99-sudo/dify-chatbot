@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>社内向けAIアシスタント</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* スクロールバーのスタイル */
+        #chat-window::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-window::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        #chat-window::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        #chat-window::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .message-bubble {
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .markdown-content p {
+            margin-bottom: 1rem;
+        }
+        .markdown-content ul {
+            list-style-type: disc;
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+         .markdown-content ol {
+            list-style-type: decimal;
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center h-screen font-sans">
+
+    <div class="w-full max-w-2xl h-full md:h-[90%] flex flex-col bg-white shadow-2xl rounded-lg">
+        <!-- ヘッダー -->
+        <header class="bg-blue-600 text-white p-4 rounded-t-lg flex items-center">
+            <svg class="w-8 h-8 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+            <h1 class="text-xl font-bold">社内向けAIアシスタント</h1>
+            <div class="flex-grow"></div>
+            <!-- 会話履歴消去ボタン -->
+            <button id="clear-button" title="会話履歴を消去" class="text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-white transition">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+        </header>
+
+        <!-- チャットウィンドウ -->
+        <main id="chat-window" class="flex-1 p-6 overflow-y-auto space-y-4">
+            <!-- メッセージがここに追加されます -->
+            <div class="flex justify-start">
+                <div class="message-bubble bg-gray-200 p-3 rounded-lg">
+                    <p class="text-gray-800">業務に関するご質問をどうぞ。</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- 入力フォーム -->
+        <footer class="border-t-2 border-gray-200 p-4 bg-white rounded-b-lg">
+            <form id="chat-form" class="flex items-center space-x-3">
+                <input type="text" id="message-input" placeholder="メッセージを入力..."
+                    class="flex-1 w-full px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition" autocomplete="off">
+                <button type="submit" id="send-button"
+                    class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300 ease-in-out transform hover:scale-105">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </button>
+            </form>
+        </footer>
+    </div>
+    
+    <!-- 履歴消去の確認モーダル -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl text-center">
+            <p class="mb-4">本当に会話履歴を消去しますか？</p>
+            <div class="flex justify-center space-x-4">
+                <button id="confirm-yes" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">はい</button>
+                <button id="confirm-no" class="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">いいえ</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Marked.js CDN for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <script>
+        // --- Difyの設定項目 ---
+        const API_KEY = 'app-n3vrp9lKz1bs9XI7h7mMMmqq';
+        const API_URL = 'https://api.dify.ai/v1/workflows/run';
+        // --- 設定はここまで ---
+
+        const chatWindow = document.getElementById('chat-window');
+        const chatForm = document.getElementById('chat-form');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const clearButton = document.getElementById('clear-button');
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmYes = document.getElementById('confirm-yes');
+        const confirmNo = document.getElementById('confirm-no');
+
+        let conversationId = ''; 
+        let conversationHistory = [];
+
+        // ページ読み込み時に会話履歴をロード
+        document.addEventListener('DOMContentLoaded', loadConversation);
+        
+        // 送信ボタンのイベントリスナー
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userMessage = messageInput.value.trim();
+            if (userMessage === '' || sendButton.disabled) return;
+
+            appendMessage(userMessage, 'user');
+            conversationHistory.push({ sender: 'user', content: userMessage });
+            saveConversation();
+            
+            messageInput.value = '';
+            toggleSendButton(true);
+
+            const typingIndicator = showTypingIndicator();
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        "inputs": { "user_input": userMessage },
+                        "response_mode": "streaming",
+                        "user": "unique-user-id",
+                        "conversation_id": conversationId
+                    })
+                });
+
+                if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
+                await handleStreamingResponse(response, typingIndicator);
+
+            } catch (error) {
+                console.error('Error:', error);
+                const aiContainer = createAiMessageContainer();
+                aiContainer.querySelector('.markdown-content').textContent = 'エラーが発生しました。しばらくしてからもう一度お試しください。';
+                if(typingIndicator) typingIndicator.remove();
+            } finally {
+                toggleSendButton(false);
+            }
+        });
+        
+        // 履歴消去ボタンのイベントリスナー
+        clearButton.addEventListener('click', () => {
+            confirmModal.classList.remove('hidden');
+        });
+
+        confirmNo.addEventListener('click', () => {
+            confirmModal.classList.add('hidden');
+        });
+        
+        confirmYes.addEventListener('click', () => {
+            localStorage.removeItem('difyChatHistory');
+            conversationHistory = [];
+            chatWindow.innerHTML = `
+                <div class="flex justify-start">
+                    <div class="message-bubble bg-gray-200 p-3 rounded-lg">
+                        <p class="text-gray-800">業務に関するご質問をどうぞ。</p>
+                    </div>
+                </div>
+            `;
+            conversationId = '';
+            confirmModal.classList.add('hidden');
+        });
+
+        // ストリーミング応答を処理する関数
+        async function handleStreamingResponse(response, typingIndicator) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let aiMessageContainer = null;
+            let aiMessageContent = '';
+            let isFirstChunk = true;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const jsonData = JSON.parse(line.substring(6));
+                            
+                            if (isFirstChunk) {
+                                typingIndicator.remove();
+                                aiMessageContainer = createAiMessageContainer();
+                                isFirstChunk = false;
+                            }
+
+                            if (jsonData.conversation_id) { conversationId = jsonData.conversation_id; }
+                            if (jsonData.event === 'agent_message' || jsonData.event === 'message') {
+                                aiMessageContent += jsonData.answer;
+                                aiMessageContainer.querySelector('.markdown-content').innerHTML = marked.parse(aiMessageContent);
+                                scrollToBottom();
+                            }
+                        } catch (e) { /* JSON parse error */ }
+                    }
+                }
+            }
+            if (aiMessageContent) {
+                conversationHistory.push({ sender: 'ai', content: aiMessageContent });
+                saveConversation();
+            }
+        }
+        
+        function appendMessage(text, sender) {
+            const messageWrapper = document.createElement('div');
+            messageWrapper.classList.add('flex', sender === 'user' ? 'justify-end' : 'justify-start');
+            const messageBubble = document.createElement('div');
+            messageBubble.classList.add('message-bubble', 'p-3', 'rounded-lg', sender === 'user' ? 'bg-blue-500' : 'bg-gray-200');
+            const messageText = document.createElement('p');
+            messageText.classList.add(sender === 'user' ? 'text-white' : 'text-gray-800');
+            messageText.textContent = text;
+            messageBubble.appendChild(messageText);
+            messageWrapper.appendChild(messageBubble);
+            chatWindow.appendChild(messageWrapper);
+            scrollToBottom();
+        }
+        
+        function createAiMessageContainer() {
+            const messageWrapper = document.createElement('div');
+            messageWrapper.classList.add('flex', 'justify-start');
+            const messageBubble = document.createElement('div');
+            messageBubble.classList.add('message-bubble', 'p-3', 'rounded-lg', 'bg-gray-200');
+            const markdownContainer = document.createElement('div');
+            markdownContainer.classList.add('markdown-content', 'text-gray-800');
+            messageBubble.appendChild(markdownContainer);
+            messageWrapper.appendChild(messageBubble);
+            chatWindow.appendChild(messageWrapper);
+            return messageWrapper;
+        }
+
+        function showTypingIndicator() {
+            const indicatorWrapper = document.createElement('div');
+            indicatorWrapper.id = 'typing-indicator';
+            indicatorWrapper.classList.add('flex', 'justify-start');
+            indicatorWrapper.innerHTML = `<div class="message-bubble bg-gray-200 p-3 rounded-lg flex items-center space-x-1"><span class="w-2 h-2 bg-gray-500 rounded-full animate-pulse" style="animation-delay: 0s;"></span><span class="w-2 h-2 bg-gray-500 rounded-full animate-pulse" style="animation-delay: 0.2s;"></span><span class="w-2 h-2 bg-gray-500 rounded-full animate-pulse" style="animation-delay: 0.4s;"></span></div>`;
+            chatWindow.appendChild(indicatorWrapper);
+            scrollToBottom();
+            return indicatorWrapper;
+        }
+
+        function toggleSendButton(isDisabled) {
+            sendButton.disabled = isDisabled;
+            messageInput.disabled = isDisabled;
+            sendButton.classList.toggle('opacity-50', isDisabled);
+            sendButton.classList.toggle('cursor-not-allowed', isDisabled);
+        }
+
+        function scrollToBottom() {
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        // --- Local Storage Functions ---
+        function saveConversation() {
+            localStorage.setItem('difyChatHistory', JSON.stringify(conversationHistory));
+            const convId = localStorage.getItem('difyConversationId');
+            if(conversationId && convId !== conversationId) {
+                localStorage.setItem('difyConversationId', conversationId);
+            }
+        }
+
+        function loadConversation() {
+            const savedHistory = localStorage.getItem('difyChatHistory');
+            const savedConvId = localStorage.getItem('difyConversationId');
+            if (savedConvId) {
+                conversationId = savedConvId;
+            }
+            if (savedHistory) {
+                conversationHistory = JSON.parse(savedHistory);
+                chatWindow.innerHTML = ''; 
+                // Add the initial AI message back after clearing
+                const initialAiMessage = document.createElement('div');
+                initialAiMessage.classList.add('flex', 'justify-start');
+                initialAiMessage.innerHTML = `
+                    <div class="message-bubble bg-gray-200 p-3 rounded-lg">
+                        <p class="text-gray-800">業務に関するご質問をどうぞ。</p>
+                    </div>`;
+                chatWindow.appendChild(initialAiMessage);
+                
+                conversationHistory.forEach(msg => {
+                    if (msg.sender === 'user') {
+                        appendMessage(msg.content, 'user');
+                    } else if (msg.sender === 'ai') {
+                        const aiContainer = createAiMessageContainer();
+                        aiContainer.querySelector('.markdown-content').innerHTML = marked.parse(msg.content);
+                    }
+                });
+                scrollToBottom();
+            }
+        }
+    </script>
+</body>
+</html>
