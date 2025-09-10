@@ -136,14 +136,16 @@
                     },
                     body: JSON.stringify({
                         "inputs": { "user_input": userMessage },
-                        "response_mode": "streaming",
+                        "response_mode": "blocking", // ★★★ ストリーミングから一括受信に変更 ★★★
                         "user": "unique-user-id",
                         "conversation_id": conversationId
                     })
                 });
 
                 if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-                await handleStreamingResponse(response, typingIndicator);
+                
+                // ★★★ 新しい応答処理関数を呼び出す ★★★
+                await handleBlockingResponse(response, typingIndicator);
 
             } catch (error) {
                 console.error('Error:', error);
@@ -178,46 +180,31 @@
             confirmModal.classList.add('hidden');
         });
 
-        // ストリーミング応答を処理する関数
-        async function handleStreamingResponse(response, typingIndicator) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let aiMessageContainer = null;
+        // ★★★ 新しい！一括受信した応答を処理する関数 ★★★
+        async function handleBlockingResponse(response, typingIndicator) {
+            typingIndicator.remove();
+            const responseData = await response.json();
+
             let aiMessageContent = '';
-            let isFirstChunk = true;
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n\n');
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const jsonData = JSON.parse(line.substring(6));
-                            
-                            if (isFirstChunk) {
-                                typingIndicator.remove();
-                                aiMessageContainer = createAiMessageContainer();
-                                isFirstChunk = false;
-                            }
-
-                            if (jsonData.conversation_id) { conversationId = jsonData.conversation_id; }
-                            if (jsonData.event === 'agent_message' || jsonData.event === 'message') {
-                                aiMessageContent += jsonData.answer;
-                                aiMessageContainer.querySelector('.markdown-content').innerHTML = marked.parse(aiMessageContent);
-                                scrollToBottom();
-                            }
-                        } catch (e) { /* JSON parse error */ }
-                    }
-                }
+            // Difyワークフローの一括応答形式から回答を抽出
+            if (responseData && responseData.data && responseData.data.outputs && responseData.data.outputs.text) {
+                 aiMessageContent = responseData.data.outputs.text;
+            } else {
+                aiMessageContent = 'AIからの応答形式が予期せぬものでした。';
+                console.error("Unexpected response format:", responseData);
             }
-            if (aiMessageContent) {
-                conversationHistory.push({ sender: 'ai', content: aiMessageContent });
-                saveConversation();
+            
+            // 会話IDを更新
+            if (responseData.data && responseData.data.conversation_id) {
+                conversationId = responseData.data.conversation_id;
             }
+
+            const aiContainer = createAiMessageContainer();
+            aiContainer.querySelector('.markdown-content').innerHTML = marked.parse(aiMessageContent);
+
+            conversationHistory.push({ sender: 'ai', content: aiMessageContent });
+            saveConversation();
+            scrollToBottom();
         }
         
         function appendMessage(text, sender) {
