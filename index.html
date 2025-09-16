@@ -6,7 +6,6 @@
     <title>社内向けAIアシスタント</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* スクロールバーのスタイル */
         #chat-window::-webkit-scrollbar {
             width: 8px;
         }
@@ -42,20 +41,16 @@
 <body class="bg-gray-100 flex items-center justify-center h-screen font-sans">
 
     <div class="w-full max-w-2xl h-full md:h-[90%] flex flex-col bg-white shadow-2xl rounded-lg">
-        <!-- ヘッダー -->
         <header class="bg-blue-600 text-white p-4 rounded-t-lg flex items-center">
             <svg class="w-8 h-8 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
             <h1 class="text-xl font-bold">社内向けAIアシスタント</h1>
             <div class="flex-grow"></div>
-            <!-- 会話履歴消去ボタン -->
             <button id="clear-button" title="会話履歴を消去" class="text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-white transition">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
         </header>
 
-        <!-- チャットウィンドウ -->
         <main id="chat-window" class="flex-1 p-6 overflow-y-auto space-y-4">
-            <!-- メッセージがここに追加されます -->
             <div class="flex justify-start">
                 <div class="message-bubble bg-gray-200 p-3 rounded-lg">
                     <p class="text-gray-800">業務に関するご質問をどうぞ。</p>
@@ -63,7 +58,6 @@
             </div>
         </main>
 
-        <!-- 入力フォーム -->
         <footer class="border-t-2 border-gray-200 p-4 bg-white rounded-b-lg">
             <form id="chat-form" class="flex items-center space-x-3">
                 <input type="text" id="message-input" placeholder="メッセージを入力..."
@@ -76,7 +70,6 @@
         </footer>
     </div>
     
-    <!-- 履歴消去の確認モーダル -->
     <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
         <div class="bg-white p-6 rounded-lg shadow-xl text-center">
             <p class="mb-4">本当に会話履歴を消去しますか？</p>
@@ -87,8 +80,6 @@
         </div>
     </div>
 
-
-    <!-- Marked.js CDN for Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
     <script>
@@ -106,13 +97,10 @@
         const confirmYes = document.getElementById('confirm-yes');
         const confirmNo = document.getElementById('confirm-no');
 
-        let conversationId = ''; 
         let conversationHistory = [];
 
-        // ページ読み込み時に会話履歴をロード
         document.addEventListener('DOMContentLoaded', loadConversation);
         
-        // 送信ボタンのイベントリスナー
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const userMessage = messageInput.value.trim();
@@ -128,6 +116,7 @@
             const typingIndicator = showTypingIndicator();
 
             try {
+                // **修正点：ストリーミングではなく、一括応答のAPIを呼び出す**
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -136,28 +125,40 @@
                     },
                     body: JSON.stringify({
                         "inputs": { "user_input": userMessage },
-                        "response_mode": "blocking", // ★★★ ストリーミングから一括受信に変更 ★★★
-                        "user": "unique-user-id",
-                        "conversation_id": conversationId
+                        "response_mode": "blocking", // "streaming" から "blocking" に変更
+                        "user": "unique-user-id"
                     })
                 });
 
-                if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
+                typingIndicator.remove();
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 
-                // ★★★ 新しい応答処理関数を呼び出す ★★★
-                await handleBlockingResponse(response, typingIndicator);
+                const result = await response.json();
+                
+                // **修正点：一括応答のデータ構造に合わせて回答を取得**
+                const aiMessageContent = result.data.outputs.text;
+
+                if(aiMessageContent) {
+                    const aiContainer = createAiMessageContainer();
+                    aiContainer.querySelector('.markdown-content').innerHTML = marked.parse(aiMessageContent);
+                    conversationHistory.push({ sender: 'ai', content: aiMessageContent });
+                    saveConversation();
+                    scrollToBottom();
+                }
 
             } catch (error) {
                 console.error('Error:', error);
+                if(typingIndicator) typingIndicator.remove();
                 const aiContainer = createAiMessageContainer();
                 aiContainer.querySelector('.markdown-content').textContent = 'エラーが発生しました。しばらくしてからもう一度お試しください。';
-                if(typingIndicator) typingIndicator.remove();
             } finally {
                 toggleSendButton(false);
             }
         });
         
-        // 履歴消去ボタンのイベントリスナー
         clearButton.addEventListener('click', () => {
             confirmModal.classList.remove('hidden');
         });
@@ -176,37 +177,9 @@
                     </div>
                 </div>
             `;
-            conversationId = '';
             confirmModal.classList.add('hidden');
         });
 
-        // ★★★ 新しい！一括受信した応答を処理する関数 ★★★
-        async function handleBlockingResponse(response, typingIndicator) {
-            typingIndicator.remove();
-            const responseData = await response.json();
-
-            let aiMessageContent = '';
-            // Difyワークフローの一括応答形式から回答を抽出
-            if (responseData && responseData.data && responseData.data.outputs && responseData.data.outputs.text) {
-                 aiMessageContent = responseData.data.outputs.text;
-            } else {
-                aiMessageContent = 'AIからの応答形式が予期せぬものでした。';
-                console.error("Unexpected response format:", responseData);
-            }
-            
-            // 会話IDを更新
-            if (responseData.data && responseData.data.conversation_id) {
-                conversationId = responseData.data.conversation_id;
-            }
-
-            const aiContainer = createAiMessageContainer();
-            aiContainer.querySelector('.markdown-content').innerHTML = marked.parse(aiMessageContent);
-
-            conversationHistory.push({ sender: 'ai', content: aiMessageContent });
-            saveConversation();
-            scrollToBottom();
-        }
-        
         function appendMessage(text, sender) {
             const messageWrapper = document.createElement('div');
             messageWrapper.classList.add('flex', sender === 'user' ? 'justify-end' : 'justify-start');
@@ -255,25 +228,15 @@
             chatWindow.scrollTop = chatWindow.scrollHeight;
         }
 
-        // --- Local Storage Functions ---
         function saveConversation() {
             localStorage.setItem('difyChatHistory', JSON.stringify(conversationHistory));
-            const convId = localStorage.getItem('difyConversationId');
-            if(conversationId && convId !== conversationId) {
-                localStorage.setItem('difyConversationId', conversationId);
-            }
         }
 
         function loadConversation() {
             const savedHistory = localStorage.getItem('difyChatHistory');
-            const savedConvId = localStorage.getItem('difyConversationId');
-            if (savedConvId) {
-                conversationId = savedConvId;
-            }
             if (savedHistory) {
                 conversationHistory = JSON.parse(savedHistory);
                 chatWindow.innerHTML = ''; 
-                // Add the initial AI message back after clearing
                 const initialAiMessage = document.createElement('div');
                 initialAiMessage.classList.add('flex', 'justify-start');
                 initialAiMessage.innerHTML = `
@@ -296,5 +259,4 @@
     </script>
 </body>
 </html>
-
 
